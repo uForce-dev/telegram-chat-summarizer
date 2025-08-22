@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     price_per_1k_completion: float = 0.008
 
     # Telegram
-    telegram_bot_token: str
     telegram_api_id: int
     telegram_api_hash: str
     error_notification_channel_id: str = ""

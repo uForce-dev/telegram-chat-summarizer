@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # --- Telethon Client (только создаем экземпляр, не запускаем) ---
 # Это позволяет нам использовать декораторы @bot.on ниже
 bot = TelegramClient(
-    'bot', settings.telegram_api_id, settings.telegram_api_hash
+    'user_session', settings.telegram_api_id, settings.telegram_api_hash
 )
 
 
@@ -131,7 +131,7 @@ async def summarize(event, db: Session = None):
                 }
             )
 
-    if len(messages_to_process) < 10:
+    if not messages_to_process:
         await event.reply(
             "Недостаточно истории сообщений для анализа. Подождите, пока в чате появятся новые сообщения."
         )
@@ -148,7 +148,7 @@ async def summarize(event, db: Session = None):
 
     if is_sent:
         update_rate_limit(db, str(chat_id))
-        log_summary_request(db, user_name=user.username or user.first_name, root_post_id=str(chat_id))
+        log_summary_request(db, user_id=user.id, root_post_id=str(chat_id))
 
 
 def run_bot():
@@ -156,8 +156,8 @@ def run_bot():
     asyncio.set_event_loop(loop)
 
     async def main():
-        await bot.start(bot_token=settings.telegram_bot_token)
-        logger.info("Telegram-бот запущен...")
+        await bot.start()
+        logger.info("Клиент Telegram запущен (режим пользователя)...")
         await bot.run_until_disconnected()
 
     loop.run_until_complete(main())
