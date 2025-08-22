@@ -19,9 +19,9 @@ class Prompt(Base):
 
 
 class LogEntry(Base):
-    __tablename__ = "tg_chats_log_entries"
+    __tablename__ = "log_entries"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_name = Column(String, index=True)
+    user_id = Column(String, index=True)
     root_post_id = Column(String, index=True)
     called_at = Column(DateTime(timezone=True), server_default=func.now())
