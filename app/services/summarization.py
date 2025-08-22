@@ -17,12 +17,7 @@ TELEGRAM_MESSAGE_LIMIT = 4096
 
 async def send_message_in_chunks(bot, chat_id, text, reply_to_id):
     if len(text) <= TELEGRAM_MESSAGE_LIMIT:
-        await bot.send_message(
-            chat_id,
-            text,
-            reply_to=reply_to_id,
-            parse_mode='md'
-        )
+        await bot.send_message(chat_id, text, reply_to=reply_to_id, parse_mode="md")
         return
 
     parts = []
@@ -32,7 +27,7 @@ async def send_message_in_chunks(bot, chat_id, text, reply_to_id):
             last_newline = part.rfind("\n")
             if last_newline != -1:
                 parts.append(part[:last_newline])
-                text = text[last_newline + 1:]
+                text = text[last_newline + 1 :]
             else:
                 parts.append(part)
                 text = text[TELEGRAM_MESSAGE_LIMIT:]
@@ -41,17 +36,14 @@ async def send_message_in_chunks(bot, chat_id, text, reply_to_id):
             break
 
     for part in parts:
-        await bot.send_message(
-            chat_id,
-            part,
-            reply_to=reply_to_id,
-            parse_mode='md'
-        )
+        await bot.send_message(chat_id, part, reply_to=reply_to_id, parse_mode="md")
         await asyncio.sleep(1)
 
 
 def check_user_rate_limit(db: Session, user_id: str) -> bool:
-    one_hour_ago = datetime.now(UTC) - timedelta(hours=settings.user_request_limit_per_hour)
+    one_hour_ago = datetime.now(UTC) - timedelta(
+        hours=settings.user_request_limit_per_hour
+    )
     request_count = (
         db.query(LogEntry)
         .filter(LogEntry.user_id == user_id, LogEntry.called_at >= one_hour_ago)
@@ -62,9 +54,7 @@ def check_user_rate_limit(db: Session, user_id: str) -> bool:
 
 def check_rate_limit(db: Session, root_post_id: str) -> bool:
     summary_record = (
-        db.query(ChatSummary)
-        .filter(ChatSummary.root_post_id == root_post_id)
-        .first()
+        db.query(ChatSummary).filter(ChatSummary.root_post_id == root_post_id).first()
     )
 
     if summary_record and summary_record.summarized_at:
@@ -74,7 +64,7 @@ def check_rate_limit(db: Session, root_post_id: str) -> bool:
         )
 
         if datetime.now(UTC) - aware_db_time < timedelta(
-                hours=settings.thread_request_cooldown_hours
+            hours=settings.thread_request_cooldown_hours
         ):
             return False
 
@@ -83,9 +73,7 @@ def check_rate_limit(db: Session, root_post_id: str) -> bool:
 
 def update_rate_limit(db: Session, root_post_id: str):
     summary_record = (
-        db.query(ChatSummary)
-        .filter(ChatSummary.root_post_id == root_post_id)
-        .first()
+        db.query(ChatSummary).filter(ChatSummary.root_post_id == root_post_id).first()
     )
 
     now_utc = datetime.now(UTC)
@@ -107,13 +95,10 @@ async def process_summarization_request(
     system_prompt: str,
     reply_to_message_id: int,
 ) -> bool:
-    """Обрабатывает запрос на суммирование и отправляет результат."""
     try:
         formatted_text = ""
         for msg in messages:
-            post_line = (
-                f"({msg['date']}) Пользователь '{msg['user']}' написал:\n{msg['text']}\n---\n"
-            )
+            post_line = f"({msg['date']}) Пользователь '{msg['user']}' написал:\n{msg['text']}\n---\n"
             formatted_text += post_line
 
         if not formatted_text.strip():
@@ -153,9 +138,7 @@ async def process_summarization_request(
             f"**Стоимость запроса:** ${summary_response.cost}"
         )
 
-        await send_message_in_chunks(
-            bot, chat_id, final_message, reply_to_message_id
-        )
+        await send_message_in_chunks(bot, chat_id, final_message, reply_to_message_id)
         return True
 
     except RPCError as e:
@@ -164,7 +147,7 @@ async def process_summarization_request(
             try:
                 await bot.send_message(
                     settings.error_notification_channel_id,
-                    f"Не удалось отправить сообщение в чат {chat_id}. Ошибка: {e}"
+                    f"Не удалось отправить сообщение в чат {chat_id}. Ошибка: {e}",
                 )
             except RPCError as admin_e:
                 logger.error(f"Не удалось отправить уведомление об ошибке: {admin_e}")
@@ -177,7 +160,9 @@ async def process_summarization_request(
                 chat_id, text=error_message, reply_to=reply_to_message_id
             )
         except RPCError as send_err:
-            logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_err}")
+            logger.error(
+                f"Не удалось отправить сообщение об ошибке пользователю: {send_err}"
+            )
 
         if settings.error_notification_channel_id:
             try:

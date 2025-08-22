@@ -23,10 +23,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Telethon Client (только создаем экземпляр, не запускаем) ---
-# Это позволяет нам использовать декораторы @bot.on ниже
 bot = TelegramClient(
-    'user_session', settings.telegram_api_id, settings.telegram_api_hash
+    "user_session", settings.telegram_api_id, settings.telegram_api_hash
 )
 
 
@@ -42,7 +40,7 @@ def get_db(func):
     return wrapper
 
 
-@bot.on(events.NewMessage(pattern='/start'))
+@bot.on(events.NewMessage(pattern="/start"))
 async def start(event):
     await event.reply(
         "Привет! Я бот для суммирования чатов. Добавьте меня в группу и дайте права на чтение сообщений.\n"
@@ -50,7 +48,7 @@ async def start(event):
     )
 
 
-@bot.on(events.NewMessage(pattern='/help'))
+@bot.on(events.NewMessage(pattern="/help"))
 async def help_command(event):
     help_text = (
         "**Как использовать бота:**\n\n"
@@ -66,7 +64,7 @@ async def help_command(event):
     await event.reply(help_text, parse_mode="md")
 
 
-@bot.on(events.NewMessage(pattern='/summarize'))
+@bot.on(events.NewMessage(pattern="/summarize"))
 @get_db
 async def summarize(event, db: Session = None):
     user = await event.get_sender()

@@ -1,1 +1,0 @@
-SUMMARY_REQUEST_TRIGGER = "!summary"
