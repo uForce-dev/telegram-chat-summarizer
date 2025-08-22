@@ -1,0 +1,20 @@
+[project]
+name = "telegram-chat-summarizer"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "aiofiles>=23.2.1",
+    "black>=23.12.1",
+    "fastapi>=0.108.0",
+    "jinja2>=3.1.2",
+    "openai>=1.6.1",
+    "psycopg2-binary>=2.9.9",
+    "pydantic-settings>=2.1.0",
+    "python-multipart>=0.0.6",
+    "sqlalchemy>=2.0.25",
+    "tiktoken>=0.5.2",
+    "uvicorn>=0.25.0",
+    "python-telegram-bot[ext]>=20.7",
+    "itsdangerous>=2.2.0",
+]
