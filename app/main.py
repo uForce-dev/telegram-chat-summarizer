@@ -3,13 +3,9 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import engine, Base
 from app.endpoints import router
-from app.loader import settings  # <-- Импортируем settings
-from app.security import BasicAuthBackend, on_auth_error
 from telegram_bot import run_bot
 
 logger = logging.getLogger(__name__)
@@ -28,15 +24,10 @@ async def lifespan(_: FastAPI):
 
     logger.info("Остановка FastAPI приложения...")
 
+
 app = FastAPI(lifespan=lifespan)
 
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
-app.add_middleware(
-    AuthenticationMiddleware, backend=BasicAuthBackend(), on_error=on_auth_error
-)
-
 app.include_router(router)
-
 
 if __name__ == "__main__":
     import uvicorn
