@@ -1,18 +1,10 @@
 import asyncio
 import logging
 import shlex
-from collections import deque
 from functools import wraps
 
 from sqlalchemy.orm import Session
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
+from telethon import TelegramClient, events
 
 from app.database import SessionLocal
 from app.loader import settings
@@ -31,56 +23,57 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_SIZE = 200
-chat_histories = {}
+# --- Telethon Client (только создаем экземпляр, не запускаем) ---
+# Это позволяет нам использовать декораторы @bot.on ниже
+bot = TelegramClient(
+    'bot', settings.telegram_api_id, settings.telegram_api_hash
+)
 
 
 def get_db(func):
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(event):
         db = SessionLocal()
         try:
-            return await func(*args, db=db, **kwargs)
+            return await func(event, db=db)
         finally:
             db.close()
 
     return wrapper
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+@bot.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    await event.reply(
         "Привет! Я бот для суммирования чатов. Добавьте меня в группу и дайте права на чтение сообщений.\n"
         "Для вызова справки используйте /help."
     )
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@bot.on(events.NewMessage(pattern='/help'))
+async def help_command(event):
     help_text = (
         "**Как использовать бота:**\n\n"
         "1. Убедитесь, что бот добавлен в чат.\n"
         "2. Для суммирования вызовите команду:\n"
         "`/summarize <тип_промпта> [количество_сообщений]`\n\n"
-        "   - `<тип_промпта>`: обязательный параметр. Указывает, какой системный промпт использовать (например, `general`). "
-        "Посмотреть доступные типы можно в админ-панели.\n"
+        "   - `<тип_промпта>`: обязательный параметр. Указывает, какой системный промпт использовать (например, `general`).\n"
         "   - `[количество_сообщений]`: необязательный параметр. По умолчанию — **100**. Максимум — **200**.\n\n"
         "**Примеры:**\n"
         "- `/summarize general` — получить сводку по последним 100 сообщениям.\n"
         "- `/summarize meetings 50` — получить сводку по последним 50 сообщениям с промптом `meetings`."
     )
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await event.reply(help_text, parse_mode="md")
 
 
+@bot.on(events.NewMessage(pattern='/summarize'))
 @get_db
-async def summarize(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, db: Session = None
-):
-    user = update.effective_user
-    chat_id = update.message.chat_id
-    if not user:
-        return
+async def summarize(event, db: Session = None):
+    user = await event.get_sender()
+    chat_id = event.chat_id
 
     try:
-        parts = shlex.split(update.message.text)
+        parts = shlex.split(event.message.text)
         if not (2 <= len(parts) <= 3):
             raise ValueError
 
@@ -88,26 +81,24 @@ async def summarize(
         num_messages = int(parts[2]) if len(parts) == 3 else 100
 
     except (ValueError, IndexError):
-        await update.message.reply_text(
+        await event.reply(
             "Неверный формат команды. Используйте: `/summarize <тип_промпта> [кол-во сообщений]`\n"
             "Для справки введите /help."
         )
         return
 
-    if num_messages <= 0 or num_messages > MAX_HISTORY_SIZE:
-        await update.message.reply_text(
-            f"Количество сообщений должно быть от 1 до {MAX_HISTORY_SIZE}."
-        )
+    if not (0 < num_messages <= 200):
+        await event.reply("Количество сообщений должно быть от 1 до 200.")
         return
 
     if not check_user_rate_limit(db, str(user.id)):
-        await update.message.reply_text(
+        await event.reply(
             f"Вы превысили лимит запросов ({settings.user_request_limit_per_hour} в час). Попробуйте позже."
         )
         return
 
     if not check_rate_limit(db, str(chat_id)):
-        await update.message.reply_text(
+        await event.reply(
             f"Для этого чата суммирование было недавно. Попробуйте через {settings.thread_request_cooldown_hours}ч."
         )
         return
@@ -119,65 +110,54 @@ async def summarize(
         if all_prompts:
             available_types = ", ".join(f"`{p.name}`" for p in all_prompts)
             error_text += f"\n\nДоступные типы: {available_types}"
-        await update.message.reply_text(error_text, parse_mode="Markdown")
+        await event.reply(error_text, parse_mode="md")
         return
 
-    history = chat_histories.get(chat_id)
-    if not history or len(history) < 10:
-        await update.message.reply_text(
+    await event.reply(
+        f"✅ Принято! Анализирую последние {num_messages} сообщений. Это может занять несколько минут..."
+    )
+
+    messages = await bot.get_messages(event.chat_id, limit=num_messages)
+    messages_to_process = []
+    for message in reversed(messages):
+        if message.text:
+            sender = await message.get_sender()
+            username = sender.username or sender.first_name or "Unknown"
+            messages_to_process.append(
+                {
+                    "user": username,
+                    "text": message.text,
+                    "date": message.date.isoformat(),
+                }
+            )
+
+    if len(messages_to_process) < 10:
+        await event.reply(
             "Недостаточно истории сообщений для анализа. Подождите, пока в чате появятся новые сообщения."
         )
         return
 
-    messages_to_process = list(history)[-num_messages:]
-
-    await update.message.reply_text(
-        f"✅ Принято! Анализирую последние {len(messages_to_process)} сообщений. Это может занять несколько минут..."
-    )
-
     is_sent = await process_summarization_request(
-        bot=context.bot,
+        bot=bot,
         chat_id=chat_id,
         messages=messages_to_process,
         user_name=user.username or user.first_name,
         system_prompt=prompt.text,
-        reply_to_message_id=update.message.message_id,
+        reply_to_message_id=event.message.id,
     )
 
     if is_sent:
         update_rate_limit(db, str(chat_id))
-        log_summary_request(db, user_id=str(user.id), root_post_id=str(chat_id))
-
-
-async def store_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    user = update.message.from_user
-    username = user.username or user.full_name
-
-    message_data = {
-        "user": username,
-        "text": update.message.text,
-        "date": update.message.date.isoformat(),
-    }
-
-    if chat_id not in chat_histories:
-        chat_histories[chat_id] = deque(maxlen=MAX_HISTORY_SIZE)
-
-    chat_histories[chat_id].append(message_data)
+        log_summary_request(db, user_name=user.username or user.first_name, root_post_id=str(chat_id))
 
 
 def run_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    application = Application.builder().token(settings.telegram_bot_token).build()
+    async def main():
+        await bot.start(bot_token=settings.telegram_bot_token)
+        logger.info("Telegram-бот запущен...")
+        await bot.run_until_disconnected()
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("summarize", summarize))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, store_message)
-    )
-
-    logger.info("Telegram-бот запущен в фоновом режиме...")
-    application.run_polling()
+    loop.run_until_complete(main())

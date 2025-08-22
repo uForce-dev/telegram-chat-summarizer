@@ -4,8 +4,7 @@ from datetime import datetime, UTC, timedelta
 
 import tiktoken
 from sqlalchemy.orm import Session
-from telegram.constants import ParseMode
-from telegram.error import TelegramError
+from telethon.errors import RPCError
 
 from app.loader import settings
 from app.models import ChatSummary, LogEntry
@@ -19,10 +18,10 @@ TELEGRAM_MESSAGE_LIMIT = 4096
 async def send_message_in_chunks(bot, chat_id, text, reply_to_id):
     if len(text) <= TELEGRAM_MESSAGE_LIMIT:
         await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_to_message_id=reply_to_id,
-            parse_mode=ParseMode.MARKDOWN,
+            chat_id,
+            text,
+            reply_to=reply_to_id,
+            parse_mode='md'
         )
         return
 
@@ -33,7 +32,7 @@ async def send_message_in_chunks(bot, chat_id, text, reply_to_id):
             last_newline = part.rfind("\n")
             if last_newline != -1:
                 parts.append(part[:last_newline])
-                text = text[last_newline + 1 :]
+                text = text[last_newline + 1:]
             else:
                 parts.append(part)
                 text = text[TELEGRAM_MESSAGE_LIMIT:]
@@ -43,12 +42,12 @@ async def send_message_in_chunks(bot, chat_id, text, reply_to_id):
 
     for part in parts:
         await bot.send_message(
-            chat_id=chat_id,
-            text=part,
-            reply_to_message_id=reply_to_id,
-            parse_mode=ParseMode.MARKDOWN,
+            chat_id,
+            part,
+            reply_to=reply_to_id,
+            parse_mode='md'
         )
-        await asyncio.sleep(1) # Небольшая задержка, чтобы избежать rate limit
+        await asyncio.sleep(1)
 
 
 def check_user_rate_limit(db: Session, user_id: str) -> bool:
@@ -83,7 +82,6 @@ def check_rate_limit(db: Session, root_post_id: str) -> bool:
 
 
 def update_rate_limit(db: Session, root_post_id: str):
-    # ... (код функции без изменений) ...
     summary_record = (
         db.query(ChatSummary)
         .filter(ChatSummary.root_post_id == root_post_id)
@@ -111,7 +109,6 @@ async def process_summarization_request(
 ) -> bool:
     """Обрабатывает запрос на суммирование и отправляет результат."""
     try:
-        # --- Форматирование текста для OpenAI ---
         formatted_text = ""
         for msg in messages:
             post_line = (
@@ -121,13 +118,12 @@ async def process_summarization_request(
 
         if not formatted_text.strip():
             await bot.send_message(
-                chat_id=chat_id,
+                chat_id,
                 text=f"@{user_name}, не удалось найти текст в выбранных сообщениях для анализа.",
-                reply_to_message_id=reply_to_message_id,
+                reply_to=reply_to_message_id,
             )
             return False
 
-        # --- Проверка стоимости запроса ---
         try:
             encoding = tiktoken.get_encoding("cl100k_base")
             prompt_tokens = len(encoding.encode(formatted_text))
@@ -140,19 +136,17 @@ async def process_summarization_request(
                     f"превышает лимит в ${settings.max_request_cost:.2f}."
                 )
                 await bot.send_message(
-                    chat_id=chat_id,
+                    chat_id,
                     text=error_message,
-                    reply_to_message_id=reply_to_message_id,
+                    reply_to=reply_to_message_id,
                 )
                 return False
         except Exception as e:
             logger.exception(f"Ошибка при подсчете токенов: {e}")
-            pass  # Продолжаем, даже если не удалось посчитать
+            pass
 
-        # --- Получение сводки от OpenAI ---
         summary_response = get_summary_from_openai(formatted_text, system_prompt)
 
-        # --- Отправка результата ---
         final_message = (
             f"**Краткая сводка по запросу** @{user_name}:\n\n"
             f"{summary_response.summary}\n\n"
@@ -164,24 +158,33 @@ async def process_summarization_request(
         )
         return True
 
-    except TelegramError as e:
+    except RPCError as e:
         logger.error(f"Ошибка Telegram при отправке сообщения в чат {chat_id}: {e}")
-        # Попытка уведомить администратора, если чат для ошибок задан
-        if settings.error_notification_chat_id:
-            await bot.send_message(
-                chat_id=settings.error_notification_chat_id,
-                text=f"Не удалось отправить сообщение в чат {chat_id}. Ошибка: {e}"
-            )
+        if settings.error_notification_channel_id:
+            try:
+                await bot.send_message(
+                    settings.error_notification_channel_id,
+                    f"Не удалось отправить сообщение в чат {chat_id}. Ошибка: {e}"
+                )
+            except RPCError as admin_e:
+                logger.error(f"Не удалось отправить уведомление об ошибке: {admin_e}")
         return False
     except Exception as e:
         logger.exception(f"Критическая ошибка при обработке запроса от {user_name}")
         error_message = f"@{user_name}, произошла внутренняя ошибка. Не удалось выполнить суммирование."
-        await bot.send_message(
-            chat_id=chat_id, text=error_message, reply_to_message_id=reply_to_message_id
-        )
-        if settings.error_notification_chat_id:
+        try:
             await bot.send_message(
-                chat_id=settings.error_notification_chat_id,
-                text=f"Критическая ошибка в боте при запросе от @{user_name} в чате {chat_id}:\n\n{e}",
+                chat_id, text=error_message, reply_to=reply_to_message_id
             )
+        except RPCError as send_err:
+            logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_err}")
+
+        if settings.error_notification_channel_id:
+            try:
+                await bot.send_message(
+                    settings.error_notification_channel_id,
+                    f"Критическая ошибка в боте при запросе от @{user_name} в чате {chat_id}:\n\n{e}",
+                )
+            except RPCError as admin_e:
+                logger.error(f"Не удалось отправить уведомление об ошибке: {admin_e}")
         return False

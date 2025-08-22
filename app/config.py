@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str
+    telegram_api_id: int
+    telegram_api_hash: str
     error_notification_channel_id: str = ""
 
     # Database
