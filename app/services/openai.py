@@ -19,7 +19,7 @@ def get_summary_from_openai(text: str, system_prompt: str) -> SummaryResponse:
                 {"role": "user", "content": text},
             ],
             model="gpt-4-turbo",
-            timeout=settings.OPENAI_TIMEOUT_SECONDS,
+            timeout=settings.openai_timeout_seconds,
         )
 
         prompt_tokens = chat_completion.usage.prompt_tokens

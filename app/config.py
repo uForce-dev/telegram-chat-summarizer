@@ -1,7 +1,5 @@
 from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 class Settings(BaseSettings):
     BASE_PATH: Path = Path(__file__).resolve().parent.parent
@@ -9,24 +7,30 @@ class Settings(BaseSettings):
     APP_PATH: Path = BASE_PATH / "app"
     TEMPLATES_PATH: Path = APP_PATH / "templates"
 
+    # Security
     admin_username: str
     admin_password: str
     secret_key: str
 
+    # OpenAI
     openai_api_key: str
-    price_per_1k_prompt: float
-    price_per_1k_completion: float
+    max_request_cost: float = 1.0
+    price_per_1k_prompt: float = 0.002
+    price_per_1k_completion: float = 0.008
 
+    # Telegram
     telegram_bot_token: str
-    error_notification_channel_id: str
+    error_notification_channel_id: str = ""
 
-    database_url: str = "sqlite:///./summaries.db"
+    # Database
+    database_url: str
 
-    MAX_REQUEST_COST: float = 1.0
+    # Rate Limits
+    user_request_limit_per_hour: int = 3
+    thread_request_cooldown_hours: int = 6
 
-    USER_REQUEST_LIMIT_PER_HOUR: int = 3
-    THREAD_REQUEST_COOLDOWN_HOURS: int = 6
-    REQUEST_TIMEOUT_SECONDS: int = 30
-    OPENAI_TIMEOUT_SECONDS: int = 180
+    # Timeouts
+    request_timeout_seconds: int = 30
+    openai_timeout_seconds: int = 180
 
-    model_config = SettingsConfigDict(env_file=Path.joinpath(BASE_PATH, ".env"))
+    model_config = SettingsConfigDict(env_file=BASE_PATH / ".env")
