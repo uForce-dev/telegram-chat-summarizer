@@ -1,12 +1,15 @@
+import base64
+import binascii
 import secrets
 
 from starlette.authentication import (
     AuthCredentials,
     AuthenticationBackend,
     SimpleUser,
+    AuthenticationError,
 )
 from starlette.requests import HTTPConnection
-from starlette.responses import Response
+from starlette.responses import PlainTextResponse
 
 from app.loader import settings
 
@@ -21,25 +24,24 @@ class BasicAuthBackend(AuthenticationBackend):
             scheme, credentials = auth.split()
             if scheme.lower() != "basic":
                 return
-            decoded = credentials.encode("ascii")
-            username, password = decoded.split(b":")
-            correct_username = secrets.compare_digest(
-                username, settings.admin_username.encode("utf8")
+            decoded = base64.b64decode(credentials).decode("ascii")
+        except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+            raise AuthenticationError("Invalid basic auth credentials")
+
+        username, _, password = decoded.partition(":")
+        correct_username = secrets.compare_digest(
+            username.encode("utf8"), settings.admin_username.encode("utf8")
+        )
+        correct_password = secrets.compare_digest(
+            password.encode("utf8"), settings.admin_password.encode("utf8")
+        )
+        if correct_username and correct_password:
+            return AuthCredentials(["authenticated"]), SimpleUser(
+                settings.admin_username
             )
-            correct_password = secrets.compare_digest(
-                password, settings.admin_password.encode("utf8")
-            )
-            if correct_username and correct_password:
-                return AuthCredentials(["authenticated"]), SimpleUser(
-                    settings.admin_username
-                )
-        except Exception:
-            pass
 
 
 def on_auth_error(request, exc: Exception):
-    return Response(
-        "Unauthorized",
-        status_code=401,
-        headers={"WWW-Authenticate": "Basic realm='Private Area'"},
+    return PlainTextResponse(
+        str(exc), status_code=401, headers={"WWW-Authenticate": "Basic"}
     )

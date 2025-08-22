@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     admin_username: str
     admin_password: str
+    secret_key: str
 
     openai_api_key: str
     price_per_1k_prompt: float
